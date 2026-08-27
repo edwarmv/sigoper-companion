@@ -26,6 +26,32 @@ describe("scan-session boundary", () => {
     );
   });
 
+  it("invalidates the previous payload when the shared server changes", () => {
+    const started = scanSessionReducer(
+      transition(initialScanSessionState, { type: "startSession" }),
+      {
+        type: "sessionStarted",
+        connection: {
+          address: "192.168.1.42",
+          port: 41000,
+          payload: "https://192.168.1.42:41000/?token=old",
+        },
+      },
+    );
+    const changed = scanSessionReducer(started, {
+      type: "connectionChanged",
+      connection: {
+        address: "10.0.0.8",
+        port: 41001,
+        payload: "https://10.0.0.8:41001/?token=new",
+      },
+    });
+
+    expect(changed.connection?.payload).toContain("token=new");
+    expect(changed.connection?.payload).not.toContain("token=old");
+    expect(changed.connectionGeneration).toBe(2);
+  });
+
   it("preserves an acknowledged raw payload while processing", () => {
     const state = transition(
       initialScanSessionState,

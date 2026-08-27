@@ -1,5 +1,11 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useState, type Dispatch } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { invoke } from "@tauri-apps/api/core";
+import {
+    chooseRecommendedAddress,
+    createConnection,
+    type InterfaceCandidate,
+} from "./connection/connection";
 import {
     initialScanSessionState,
     scanSessionReducer,
@@ -17,6 +23,7 @@ function App() {
         sessionStatusLabel(state.status),
     );
     const [showDetails, setShowDetails] = useState(false);
+    const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
     useEffect(() => {
         setAnnouncement(sessionStatusLabel(state.status));
@@ -25,17 +32,7 @@ function App() {
     useEffect(() => {
         if (state.status !== "starting") return;
         const timer = window.setTimeout(() => {
-            const address = "192.168.1.42";
-            const port = 43127;
-            const token = window.crypto.randomUUID();
-            dispatch({
-                type: "sessionStarted",
-                connection: {
-                    address,
-                    port,
-                    payload: `https://${address}:${port}/?token=${token}`,
-                },
-            });
+            void startConnectionSession(dispatch);
         }, 500);
         return () => window.clearTimeout(timer);
     }, [state.status]);
@@ -152,24 +149,39 @@ function App() {
                                       ? "Your phone opened the connection. Complete pairing to continue."
                                       : "Phone paired — ready to scan one Estigia code."}
                             </p>
-                            <label htmlFor="payload">Connection payload</label>
+                            <p id="payload-label" className="payload-label">
+                                Connection payload
+                            </p>
                             <div className="copy-row">
-                                <code id="payload">
+                                <code
+                                    id="payload"
+                                    aria-labelledby="payload-label"
+                                >
                                     {state.connection?.payload ??
                                         "Preparing current connection payload…"}
                                 </code>
                                 <button
                                     className="secondary-button"
                                     disabled={!state.connection}
-                                    onClick={() =>
-                                        state.connection &&
-                                        navigator.clipboard?.writeText(
+                                    onClick={() => {
+                                        if (!state.connection) return;
+                                        void copyConnectionPayload(
                                             state.connection.payload,
-                                        )
-                                    }
+                                        ).then((message) =>
+                                            setCopyFeedback(message),
+                                        );
+                                    }}
                                 >
                                     Copy
                                 </button>
+                                {copyFeedback && (
+                                    <span
+                                        className="copy-feedback"
+                                        role="status"
+                                    >
+                                        {copyFeedback}
+                                    </span>
+                                )}
                             </div>
                             {state.status === "waitingForPhone" && (
                                 <button
@@ -219,6 +231,12 @@ function App() {
                     {showDetails && (
                         <div className="details-panel">
                             <p>
+                                <strong>Connection status:</strong>{" "}
+                                {connectionReadinessLabel(
+                                    state.connectionDiagnostics?.listening,
+                                )}
+                            </p>
+                            <p>
                                 <strong>Recommended address:</strong>{" "}
                                 {state.connection?.address ?? "Selecting…"}
                             </p>
@@ -231,6 +249,35 @@ function App() {
                                 <strong>Firewall diagnostic:</strong> Listening
                                 readiness is separate from phone reachability.
                             </p>
+                            {state.connectionDiagnostics?.alternatives
+                                .length ? (
+                                <p>
+                                    <strong>Eligible alternatives:</strong>{" "}
+                                    {state.connectionDiagnostics.alternatives
+                                        .map(
+                                            (candidate) =>
+                                                `${candidate.displayName} (${candidate.address})`,
+                                        )
+                                        .join(", ")}
+                                </p>
+                            ) : null}
+                            {state.connectionDiagnostics?.excluded.length ? (
+                                <div>
+                                    <strong>Excluded addresses:</strong>
+                                    <ul>
+                                        {state.connectionDiagnostics.excluded.map(
+                                            (candidate) => (
+                                                <li
+                                                    key={`${candidate.interfaceId}-${candidate.address}`}
+                                                >
+                                                    {candidate.address} —{" "}
+                                                    {candidate.reason}
+                                                </li>
+                                            ),
+                                        )}
+                                    </ul>
+                                </div>
+                            ) : null}
                         </div>
                     )}
                     <button
@@ -427,6 +474,96 @@ function App() {
             )}
         </main>
     );
+}
+
+const interfaceCandidates: InterfaceCandidate[] = [
+    {
+        id: "wifi-primary",
+        displayName: "Wi-Fi",
+        kind: "wifi",
+        addresses: ["192.168.1.42"],
+        routeMetric: 25,
+    },
+    {
+        id: "ethernet-secondary",
+        displayName: "Ethernet",
+        kind: "ethernet",
+        addresses: ["10.0.0.8"],
+        routeMetric: 40,
+    },
+    {
+        id: "vpn",
+        displayName: "Work VPN",
+        kind: "vpn",
+        addresses: ["10.8.0.2"],
+        routeMetric: 1,
+    },
+];
+
+async function startConnectionSession(
+    dispatch: Dispatch<ScanSessionAction>,
+): Promise<void> {
+    const selection = chooseRecommendedAddress(interfaceCandidates);
+    const recommended = selection.recommended;
+    const diagnostics = {
+        recommended: recommended
+            ? {
+                  interfaceId: recommended.interfaceId,
+                  displayName: recommended.displayName,
+                  address: recommended.address,
+              }
+            : null,
+        alternatives: selection.alternatives.map((candidate) => ({
+            interfaceId: candidate.interfaceId,
+            displayName: candidate.displayName,
+            address: candidate.address,
+        })),
+        excluded: selection.excluded,
+        listening: "unavailable" as const,
+    };
+    if (!recommended) {
+        dispatch({ type: "sessionStarted", diagnostics });
+        return;
+    }
+
+    try {
+        const port = await invoke<number>("start_shared_server", {
+            address: recommended.address,
+        });
+        dispatch({
+            type: "sessionStarted",
+            connection: createConnection(
+                recommended.address,
+                port,
+                window.crypto.randomUUID(),
+            ),
+            diagnostics: { ...diagnostics, listening: "ready" },
+        });
+    } catch {
+        dispatch({
+            type: "sessionStarted",
+            diagnostics: { ...diagnostics, listening: "unknown" },
+        });
+    }
+}
+
+function connectionReadinessLabel(
+    readiness: "ready" | "unknown" | "unavailable" | undefined,
+): string {
+    if (readiness === "ready") return "Shared server is listening locally";
+    if (readiness === "unknown") return "Shared server readiness is unknown";
+    return "No eligible connection address is available";
+}
+
+async function copyConnectionPayload(payload: string): Promise<string> {
+    if (!navigator.clipboard)
+        return "Clipboard unavailable — select and copy the text.";
+    try {
+        await navigator.clipboard.writeText(payload);
+        return "Copied";
+    } catch {
+        return "Copy was denied — select and copy the text.";
+    }
 }
 
 function ProgressCard({

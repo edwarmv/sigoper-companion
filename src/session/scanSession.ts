@@ -23,9 +23,27 @@ export type SessionConnection = {
   payload: string;
 };
 
+export type ConnectionDiagnostics = {
+  recommended: {
+    interfaceId: string;
+    displayName: string;
+    address: string;
+  } | null;
+  alternatives: { interfaceId: string; displayName: string; address: string }[];
+  excluded: {
+    interfaceId: string;
+    displayName: string;
+    address: string;
+    reason: string;
+  }[];
+  listening: "ready" | "unknown" | "unavailable";
+};
+
 export type ScanSessionState = {
   status: SessionStatus;
   connection: SessionConnection | null;
+  connectionDiagnostics: ConnectionDiagnostics | null;
+  connectionGeneration: number;
   rawPayload: string | null;
   hasRecord: boolean;
   processingFailure: string | null;
@@ -35,7 +53,16 @@ export type ScanSessionState = {
 
 export type ScanSessionAction =
   | { type: "startSession" }
-  | { type: "sessionStarted"; connection?: SessionConnection }
+  | {
+      type: "sessionStarted";
+      connection?: SessionConnection;
+      diagnostics?: ConnectionDiagnostics;
+    }
+  | {
+      type: "connectionChanged";
+      connection?: SessionConnection;
+      diagnostics?: ConnectionDiagnostics;
+    }
   | { type: "phoneOpenedConnection" }
   | { type: "phonePaired" }
   | { type: "receiveScan"; rawPayload?: string }
@@ -56,6 +83,8 @@ export type ScanSessionAction =
 export const initialScanSessionState: ScanSessionState = {
   status: "idle",
   connection: null,
+  connectionDiagnostics: null,
+  connectionGeneration: 0,
   rawPayload: null,
   hasRecord: false,
   processingFailure: null,
@@ -90,6 +119,23 @@ export function scanSessionReducer(
             ...state,
             status: "waitingForPhone",
             connection: action.connection ?? null,
+            connectionDiagnostics: action.diagnostics ?? null,
+            connectionGeneration: state.connectionGeneration + 1,
+          }
+        : state;
+    case "connectionChanged":
+      return activeStatuses.has(state.status) && action.connection
+        ? {
+            ...state,
+            status:
+              state.status === "phonePaired" ||
+              state.status === "phoneOpenedConnection"
+                ? "waitingForPhone"
+                : state.status,
+            connection: action.connection,
+            connectionDiagnostics:
+              action.diagnostics ?? state.connectionDiagnostics,
+            connectionGeneration: state.connectionGeneration + 1,
           }
         : state;
     case "phoneOpenedConnection":
