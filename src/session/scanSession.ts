@@ -86,34 +86,68 @@ export function scanSessionReducer(
         : state;
     case "sessionStarted":
       return state.status === "starting"
-        ? { ...state, status: "waitingForPhone", connection: action.connection ?? null }
+        ? {
+            ...state,
+            status: "waitingForPhone",
+            connection: action.connection ?? null,
+          }
         : state;
     case "phoneOpenedConnection":
-      return state.status === "waitingForPhone" ? { ...state, status: "phoneOpenedConnection" } : state;
+      return state.status === "waitingForPhone"
+        ? { ...state, status: "phoneOpenedConnection" }
+        : state;
     case "phonePaired":
-      return state.status === "phoneOpenedConnection" || state.status === "waitingForPhone" || state.status === "phoneDisconnected"
+      return state.status === "phoneOpenedConnection" ||
+        state.status === "waitingForPhone" ||
+        state.status === "phoneDisconnected"
         ? { ...state, status: "phonePaired" }
         : state;
     case "receiveScan":
       return state.status === "phonePaired"
-        ? { ...state, status: "receivingScan", rawPayload: action.rawPayload ?? null }
+        ? {
+            ...state,
+            status: "receivingScan",
+            rawPayload: action.rawPayload ?? null,
+          }
         : state;
     case "processingStarted":
-      return state.status === "receivingScan" ? { ...state, status: "processingPayload" } : state;
+      return state.status === "receivingScan"
+        ? { ...state, status: "processingPayload" }
+        : state;
     case "reviewComplete":
       return state.status === "processingPayload"
-        ? { ...state, status: "reviewingComplete", hasRecord: true, processingFailure: null }
+        ? {
+            ...state,
+            status: "reviewingComplete",
+            hasRecord: true,
+            processingFailure: null,
+          }
         : state;
     case "reviewIncomplete":
       return state.status === "processingPayload"
-        ? { ...state, status: "reviewingIncomplete", hasRecord: true, processingFailure: null }
+        ? {
+            ...state,
+            status: "reviewingIncomplete",
+            hasRecord: true,
+            processingFailure: null,
+          }
         : state;
     case "processingFailed":
-      return state.status === "processingPayload" || state.status === "receivingScan"
-        ? { ...state, status: "processingFailed", processingFailure: action.message }
+      return state.status === "processingPayload" ||
+        state.status === "receivingScan"
+        ? {
+            ...state,
+            status: "processingFailed",
+            processingFailure: action.message,
+          }
         : state;
     case "phoneDisconnected":
-      return ["waitingForPhone", "phoneOpenedConnection", "phonePaired", "receivingScan"].includes(state.status)
+      return [
+        "waitingForPhone",
+        "phoneOpenedConnection",
+        "phonePaired",
+        "receivingScan",
+      ].includes(state.status)
         ? { ...state, status: "phoneDisconnected" }
         : state;
     case "retryProcessing":
@@ -122,32 +156,62 @@ export function scanSessionReducer(
         : state;
     case "scanAgain":
       return state.status === "processingFailed"
-        ? { ...state, status: "phonePaired", processingFailure: null, rawPayload: null }
+        ? {
+            ...state,
+            status: "phonePaired",
+            processingFailure: null,
+            rawPayload: null,
+          }
         : state;
     case "finishReview":
       return state.status === "reviewingComplete" ||
-        (state.status === "reviewingIncomplete" && action.acknowledgeIncomplete === true)
+        (state.status === "reviewingIncomplete" &&
+          action.acknowledgeIncomplete === true)
         ? { ...state, status: "reviewFinished" }
         : state;
     case "requestEndSession":
       return activeStatuses.has(state.status)
-        ? { ...state, status: "confirmingNewSession", confirmation: "end", confirmationReturn: state.status }
+        ? {
+            ...state,
+            status: "confirmingNewSession",
+            confirmation: "end",
+            confirmationReturn: state.status,
+          }
         : state;
     case "requestNewSession":
-      return state.status === "reviewFinished" || activeStatuses.has(state.status)
-        ? { ...state, status: "confirmingNewSession", confirmation: "new", confirmationReturn: state.status }
+      return state.status === "reviewFinished" ||
+        activeStatuses.has(state.status)
+        ? {
+            ...state,
+            status: "confirmingNewSession",
+            confirmation: "new",
+            confirmationReturn: state.status,
+          }
         : state;
     case "requestCancel":
       return state.status === "starting"
         ? initialScanSessionState
-        : state.status === "processingPayload" || state.status === "receivingScan"
-          ? { ...state, status: "confirmingNewSession", confirmation: "cancel", confirmationReturn: state.status }
+        : state.status === "processingPayload" ||
+            state.status === "receivingScan"
+          ? {
+              ...state,
+              status: "confirmingNewSession",
+              confirmation: "cancel",
+              confirmationReturn: state.status,
+            }
           : state;
     case "confirmDestructiveAction":
-      return state.status === "confirmingNewSession" ? initialScanSessionState : state;
+      return state.status === "confirmingNewSession"
+        ? initialScanSessionState
+        : state;
     case "dismissConfirmation":
       return state.status === "confirmingNewSession"
-        ? { ...state, status: state.confirmationReturn ?? "idle", confirmation: null, confirmationReturn: null }
+        ? {
+            ...state,
+            status: state.confirmationReturn ?? "idle",
+            confirmation: null,
+            confirmationReturn: null,
+          }
         : state;
     default:
       return state;
