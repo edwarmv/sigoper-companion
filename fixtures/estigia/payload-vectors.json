@@ -1,0 +1,58 @@
+{
+  "contract": "docs/integration/estigia-contract.md",
+  "status": "sanitized",
+  "vectors": [
+    {
+      "id": "accepted-shape-pending-contract",
+      "rawPayload": "https://estigia.ypfb.gob.bo/REPLACE_WITH_APPROVED_PATH?REPLACE_WITH_APPROVED_QUERY",
+      "expected": "accepted_after_prerequisite",
+      "note": "The hostname and URL shape are representative only. Replace the path and query after the integration owner supplies the approved contract; this vector must not enable production fetching."
+    },
+    {
+      "id": "accepted-one-layer-encoding-pending-contract",
+      "rawPayload": "https%3A%2F%2Festigia.ypfb.gob.bo%2FREPLACE_WITH_APPROVED_PATH%3FREPLACE_WITH_APPROVED_QUERY",
+      "expected": "accepted_after_prerequisite",
+      "note": "Decode once, then apply the same contract."
+    },
+    {
+      "id": "reject-bare-token",
+      "rawPayload": "7f3c2a1e9b",
+      "expected": "unsupported_input"
+    },
+    {
+      "id": "reject-relative-path",
+      "rawPayload": "/verificacion?id=7f3c2a1e9b",
+      "expected": "unsupported_input"
+    },
+    {
+      "id": "reject-http",
+      "rawPayload": "http://estigia.ypfb.gob.bo/verificacion?id=7f3c2a1e9b",
+      "expected": "origin_rejected"
+    },
+    {
+      "id": "reject-alternate-host",
+      "rawPayload": "https://www.estigia.ypfb.gob.bo/verificacion?id=7f3c2a1e9b",
+      "expected": "origin_rejected"
+    },
+    {
+      "id": "reject-credentials",
+      "rawPayload": "https://user:secret@estigia.ypfb.gob.bo/verificacion?id=7f3c2a1e9b",
+      "expected": "origin_rejected"
+    },
+    {
+      "id": "reject-fragment",
+      "rawPayload": "https://estigia.ypfb.gob.bo/verificacion?id=7f3c2a1e9b#document",
+      "expected": "origin_rejected"
+    },
+    {
+      "id": "reject-non-default-port",
+      "rawPayload": "https://estigia.ypfb.gob.bo:8443/verificacion?id=7f3c2a1e9b",
+      "expected": "origin_rejected"
+    },
+    {
+      "id": "reject-alternate-path",
+      "rawPayload": "https://estigia.ypfb.gob.bo/other?id=7f3c2a1e9b",
+      "expected": "contract_rejected"
+    }
+  ]
+}
