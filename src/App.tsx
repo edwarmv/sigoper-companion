@@ -1,51 +1,115 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useReducer, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
+import {
+  initialScanSessionState,
+  scanSessionReducer,
+  sessionStatusLabel,
+  type ScanSessionAction,
+} from "./session/scanSession";
 import "./App.css";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [state, dispatch] = useReducer(scanSessionReducer, initialScanSessionState);
+  const [announcement, setAnnouncement] = useState(sessionStatusLabel(state.status));
+  const [showDetails, setShowDetails] = useState(false);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  useEffect(() => {
+    setAnnouncement(sessionStatusLabel(state.status));
+  }, [state.status]);
+
+  useEffect(() => {
+    if (state.status !== "starting") return;
+    const timer = window.setTimeout(() => {
+      const address = "192.168.1.42";
+      const port = 43127;
+      const token = window.crypto.randomUUID();
+      dispatch({ type: "sessionStarted", connection: { address, port, payload: `https://${address}:${port}/?token=${token}` } });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [state.status]);
+
+  useEffect(() => {
+    if (state.status !== "receivingScan") return;
+    const timer = window.setTimeout(() => dispatch({ type: "processingStarted" }), 350);
+    return () => window.clearTimeout(timer);
+  }, [state.status]);
+
+  useEffect(() => {
+    if (state.status !== "processingPayload") return;
+    const timer = window.setTimeout(() => dispatch({ type: "reviewComplete" }), 700);
+    return () => window.clearTimeout(timer);
+  }, [state.status]);
+
+  const send = (action: ScanSessionAction) => dispatch(action);
+  const isReview = state.status === "reviewingComplete" || state.status === "reviewingIncomplete";
+  const needsIncompleteAcknowledgement = state.status === "reviewingIncomplete";
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <main className="app-shell">
+      <header className="app-header">
+        <div>
+          <p className="eyebrow">SIGOPER COMPANION</p>
+          <h1>Estigia scan session</h1>
+        </div>
+        <span className="status-chip" aria-label={`Current status: ${sessionStatusLabel(state.status)}`}>
+          {sessionStatusLabel(state.status)}
+        </span>
+      </header>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+      <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+      {state.status === "idle" && (
+        <section className="hero-card" aria-labelledby="idle-title">
+          <div className="icon-circle" aria-hidden="true">○</div>
+          <p className="eyebrow">READY WHEN YOU ARE</p>
+          <h2 id="idle-title">No active phone connection</h2>
+          <p>Start a scan session when you are ready to transfer one Estigia dispatch from your phone.</p>
+          <button className="primary-button" onClick={() => send({ type: "startSession" })}>Start session</button>
+        </section>
+      )}
+
+      {state.status === "starting" && <ProgressCard title="Starting session" detail="Preparing a secure, one-scan connection…" actionLabel="Cancel" onAction={() => send({ type: "requestCancel" })} />}
+
+      {(state.status === "waitingForPhone" || state.status === "phoneOpenedConnection" || state.status === "phonePaired") && (
+        <section className="content-card" aria-labelledby="connection-title">
+          <div className="section-heading"><div><p className="eyebrow">ONE SCAN PER SESSION</p><h2 id="connection-title">Connect a phone</h2></div><span className="step">1 of 3</span></div>
+          <div className="connection-layout">
+            {state.connection ? <div className="qr-placeholder"><QRCodeSVG value={state.connection.payload} size={158} bgColor="#ffffff" fgColor="#18232d" aria-label="Scan connection QR code" /><small>Scan with your phone</small></div> : <div className="qr-placeholder"><small>Preparing connection…</small></div>}
+            <div className="connection-copy">
+              <p className="state-message">{state.status === "waitingForPhone" ? "Waiting for your phone to open the connection." : state.status === "phoneOpenedConnection" ? "Your phone opened the connection. Complete pairing to continue." : "Phone paired — ready to scan one Estigia code."}</p>
+              <label htmlFor="payload">Connection payload</label>
+              <div className="copy-row"><code id="payload">{state.connection?.payload ?? "Preparing current connection payload…"}</code><button className="secondary-button" disabled={!state.connection} onClick={() => state.connection && navigator.clipboard?.writeText(state.connection.payload)}>Copy</button></div>
+              {state.status === "waitingForPhone" && <button className="secondary-button" onClick={() => send({ type: "phoneOpenedConnection" })}>Phone opened connection</button>}
+              {state.status === "phoneOpenedConnection" && <button className="primary-button" onClick={() => send({ type: "phonePaired" })}>Complete pairing</button>}
+              {state.status === "phonePaired" && <button className="primary-button" onClick={() => send({ type: "receiveScan", rawPayload: "Manual raw payload pending" })}>Enter raw payload</button>}
+            </div>
+          </div>
+          <button className="details-button" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}>{showDetails ? "Hide connection details" : "Show connection details"}</button>
+          {showDetails && <div className="details-panel"><p><strong>Recommended address:</strong> {state.connection?.address ?? "Selecting…"}</p><p><strong>Shared server:</strong> HTTPS, port {state.connection?.port ?? "assigned at session start"}</p><p><strong>Firewall diagnostic:</strong> Listening readiness is separate from phone reachability.</p></div>}
+          <button className="text-button" onClick={() => send({ type: "requestEndSession" })}>End session</button>
+        </section>
+      )}
+
+      {state.status === "receivingScan" && <ProgressCard title="Receiving scan" detail="The raw payload was acknowledged. Preparing processing…" actionLabel="Cancel" onAction={() => send({ type: "requestCancel" })} />}
+      {state.status === "processingPayload" && <ProgressCard title="Processing payload" detail="Validating payload · fetching Estigia · preparing review" actionLabel="Cancel" onAction={() => send({ type: "requestCancel" })} />}
+
+      {state.status === "processingFailed" && (
+        <section className="content-card" aria-labelledby="failure-title"><p className="eyebrow">PROCESSING FAILURE</p><h2 id="failure-title">We could not prepare a dispatch</h2><p>{state.processingFailure}</p><p className="muted">Your acknowledged raw payload is preserved for retry.</p><div className="action-row"><button className="primary-button" onClick={() => send({ type: "retryProcessing" })}>Retry processing</button><button className="secondary-button" onClick={() => send({ type: "scanAgain" })}>Scan again</button></div><button className="text-button" onClick={() => send({ type: "requestEndSession" })}>End session</button></section>
+      )}
+
+      {isReview && (
+        <section className="content-card" aria-labelledby="review-title"><p className="eyebrow">READ-ONLY REVIEW</p><h2 id="review-title">{needsIncompleteAcknowledgement ? "Incomplete dispatch record" : "Dispatch record ready"}</h2><p>{needsIncompleteAcknowledgement ? "Some required fields are missing. Review the warnings before finishing." : "The normalized dispatch record is ready for your review."}</p><dl className="record-list"><div><dt>Document</dt><dd>Estigia dispatch · number pending</dd></div><div><dt>Conductor</dt><dd>Not supplied</dd></div><div><dt>Quantity</dt><dd>Not supplied</dd></div></dl>{needsIncompleteAcknowledgement && <p className="warning" role="alert">Warning: required fields are missing. Finish review will acknowledge these omissions.</p>}<button className="primary-button" onClick={() => send({ type: "finishReview", acknowledgeIncomplete: needsIncompleteAcknowledgement })}>{needsIncompleteAcknowledgement ? "Finish with missing fields" : "Finish review"}</button><button className="text-button" onClick={() => send({ type: "requestNewSession" })}>Start new session</button></section>
+      )}
+
+      {state.status === "phoneDisconnected" && <section className="content-card"><p className="eyebrow">PHONE DISCONNECTED</p><h2>Session is still available</h2><p>Reconnect using the current connection payload. Processing already acknowledged data will continue.</p><button className="primary-button" onClick={() => send({ type: "phonePaired" })}>Reconnect phone</button><button className="text-button" onClick={() => send({ type: "requestEndSession" })}>End session</button></section>}
+      {state.status === "reviewFinished" && <section className="content-card"><p className="eyebrow">REVIEW FINISHED</p><h2>Dispatch accepted</h2><p>This scan session is closed and can no longer accept another scan.</p><button className="primary-button" onClick={() => send({ type: "startSession" })}>Start new session</button></section>}
+      {state.status === "confirmingNewSession" && <div className="modal-backdrop"><section className="confirmation" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><p className="eyebrow">CONFIRMATION REQUIRED</p><h2 id="confirm-title">Discard this scan session?</h2><p>Ending this session discards its pairing connection and any uncompleted review. This cannot be undone.</p><div className="action-row"><button className="secondary-button" onClick={() => send({ type: "dismissConfirmation" })}>Keep session</button><button className="danger-button" onClick={() => send({ type: "confirmDestructiveAction" })}>Discard and end session</button></div></section></div>}
     </main>
   );
+}
+
+function ProgressCard({ title, detail, actionLabel, onAction }: { title: string; detail: string; actionLabel?: string; onAction?: () => void }) {
+  return <section className="content-card progress-card" aria-busy="true"><span className="spinner" aria-hidden="true" /> <div><p className="eyebrow">IN PROGRESS</p><h2>{title}</h2><p>{detail}</p>{actionLabel && onAction && <button className="text-button" onClick={onAction}>{actionLabel}</button>}</div></section>;
 }
 
 export default App;
